@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Texture Packer",
+	"Description": "Pack textures into RGBA channels",
+	"Category": "Editor",
+	"CreatedBy": "Adam Wolski",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EnabledByDefault": true,
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "TexturePacker",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}
