@@ -302,6 +302,8 @@ public:
 					FString PathPart, FilenamePart, ExtensionPart;
 					FPaths::Split(Path, PathPart, FilenamePart, ExtensionPart);
 
+					PathPart += TEXT("/");
+
 					PackTexture(*PathPart,
 								*FilenamePart,
 								Textures[0]->Source.GetSizeX(),
