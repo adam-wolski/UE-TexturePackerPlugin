@@ -7,6 +7,7 @@
 #include "Framework/Application/SlateApplication.h"	 // FSlateApplication
 #include "Framework/MultiBox/MultiBoxBuilder.h"		 // FMenuBuilder
 #include "IContentBrowserSingleton.h"				 // CreateModalSaveAssetDialog
+#include "ImageUtils.h"								 // FImageUtils
 #include "Misc/MessageDialog.h"						 // FMessageDialog
 #include "Modules/ModuleManager.h"					 // FModuleManager
 #include "Widgets/DeclarativeSyntaxSupport.h"		 // SLATE_BEGIN_ARGS
@@ -79,13 +80,29 @@ void PackTexture(const TCHAR* PackagePath,
 		int32 BytesPerPixel;
 		int32 ChannelOffset;
 	};
-	auto ChannelOptionBytes = [Size](FChannelOptionsItemInner ChannelOption) -> FChannelOptionBytes {
+	auto ChannelOptionBytes = [Size, InSizeX, InSizeY](FChannelOptionsItemInner ChannelOption) -> FChannelOptionBytes {
 		TArray64<uint8> Bytes;
 		int32 BytesPerPixel = 1;
 		if (ChannelOption.Key != nullptr)
 		{
-			ChannelOption.Key->Source.GetMipData(Bytes, 0);
-			BytesPerPixel = ChannelOption.Key->Source.GetBytesPerPixel();
+			FTextureSource& Texture = ChannelOption.Key->Source;
+			Texture.GetMipData(Bytes, 0);
+			BytesPerPixel = Texture.GetBytesPerPixel();
+
+			if (Texture.GetSizeX() != InSizeY || Texture.GetSizeY() != InSizeY)
+			{
+				TArray64<uint8> Resized;
+				Resized.AddUninitialized(Size * BytesPerPixel);
+				const bool bLinearSpace = true;
+				FImageUtils::ImageResize(Texture.GetSizeX(),
+										 Texture.GetSizeY(),
+										 TArrayView<FColor>((FColor*) Bytes.GetData(), Bytes.Num() / 4),
+										 InSizeX,
+										 InSizeY,
+										 TArrayView<FColor>((FColor*) Resized.GetData(), Resized.Num() / 4),
+										 bLinearSpace);
+				Bytes = MoveTemp(Resized);
+			}
 		}
 		else
 		{
@@ -304,10 +321,34 @@ public:
 
 					PathPart += TEXT("/");
 
+					int32 MinX = MAX_int32;
+					int32 MinY = MAX_int32;
+
+					auto FindMin = [&MinX, &MinY](const TSharedRef<SChannelComboBox>& Combo) {
+						if (UTexture* Texture = Combo->GetSelectedItem().Get()->Key)
+						{
+							MinX = FMath::Min(MinX, Texture->Source.GetSizeX());
+							MinY = FMath::Min(MinY, Texture->Source.GetSizeY());
+						}
+					};
+
+					FindMin(RedChannel);
+					FindMin(GreenChannel);
+					FindMin(BlueChannel);
+					if (UseAlphaCheckbox->IsChecked())
+					{
+						FindMin(AlphaChannel);
+					}
+
+					if (!ensure(MinX != MAX_int32 && MinY != MAX_int32))
+					{
+						return FReply::Handled();
+					}
+
 					PackTexture(*PathPart,
 								*FilenamePart,
-								Textures[0]->Source.GetSizeX(),
-								Textures[0]->Source.GetSizeY(),
+								MinX,
+								MinY,
 								*RedChannel->GetSelectedItem().Get(),
 								*BlueChannel->GetSelectedItem().Get(),
 								*GreenChannel->GetSelectedItem().Get(),
@@ -360,19 +401,6 @@ class FTexturePackerModule final : public IModuleInterface
 					}
 
 					auto ShowPackerWindow = [&SelectedAssets, Textures = MoveTemp(Textures)]() mutable {
-						const int32 SizeX = Textures[0]->Source.GetSizeX();
-						const int32 SizeY = Textures[0]->Source.GetSizeY();
-						for (UTexture* Texture : Textures)
-						{
-							if (Texture->Source.GetSizeX() != SizeX || Texture->Source.GetSizeY() != SizeY)
-							{
-								FMessageDialog::Open(EAppMsgType::Ok,
-													 LOCTEXT("ErrorSizeDialog",
-															 "All textures need to be same size for texture packing."));
-								return;
-							}
-						}
-
 						TSharedRef<SWindow> PackerWindow = SNew(SWindow)
 															   .Title(LOCTEXT("PackerWindow", "Texture Packer"))
 															   .SizingRule(ESizingRule::Autosized);
