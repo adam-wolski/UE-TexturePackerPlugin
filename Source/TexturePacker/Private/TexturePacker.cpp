@@ -22,9 +22,9 @@
 
 enum class EChannel
 {
-	R = 0,
+	B = 0,
 	G = 1,
-	B = 2,
+	R = 2,
 	A = 3,
 	White,
 	Black
@@ -117,8 +117,8 @@ void PackTexture(const TCHAR* PackagePath,
 	{
 		uint8* Pixel = &Bytes[PixelIdx * BytesPerPixel];
 
-		Pixel[0] = BlueBytes[PixelIdx * BlueBytesPerPixel + BlueOffset];
-		Pixel[1] = GreenBytes[PixelIdx * GreenBytesPerPixel + GreenOffset];
+		Pixel[0] = GreenBytes[PixelIdx * GreenBytesPerPixel + GreenOffset];
+		Pixel[1] = BlueBytes[PixelIdx * BlueBytesPerPixel + BlueOffset];
 		Pixel[2] = RedBytes[PixelIdx * RedBytesPerPixel + RedOffset];
 		Pixel[3] = AlphaBytes[PixelIdx * AlphaBytesPerPixel + AlphaOffset];
 	}
