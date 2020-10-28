@@ -22,6 +22,74 @@
 
 #define LOCTEXT_NAMESPACE "TexturePacker"
 
+// Copied from FImageUtils to fix alpha channel not being resized
+void ImageResize(int32 SrcWidth,
+				 int32 SrcHeight,
+				 const TArrayView<const FColor>& SrcData,
+				 int32 DstWidth,
+				 int32 DstHeight,
+				 const TArrayView<FColor>& DstData)
+{
+	check(SrcData.Num() >= SrcWidth * SrcHeight);
+	check(DstData.Num() >= DstWidth * DstHeight);
+
+	float SrcX = 0;
+	float SrcY = 0;
+
+	const float StepSizeX = SrcWidth / (float)DstWidth;
+	const float StepSizeY = SrcHeight / (float)DstHeight;
+
+	for(int32 Y=0; Y<DstHeight;Y++)
+	{
+		int32 PixelPos = Y * DstWidth;
+		SrcX = 0.0f;	
+	
+		for(int32 X=0; X<DstWidth; X++)
+		{
+			int32 PixelCount = 0;
+			float EndX = SrcX + StepSizeX;
+			float EndY = SrcY + StepSizeY;
+			
+			// Generate a rectangular region of pixels and then find the average color of the region.
+			int32 PosY = FMath::TruncToInt(SrcY+0.5f);
+			PosY = FMath::Clamp<int32>(PosY, 0, (SrcHeight - 1));
+
+			int32 PosX = FMath::TruncToInt(SrcX+0.5f);
+			PosX = FMath::Clamp<int32>(PosX, 0, (SrcWidth - 1));
+
+			int32 EndPosY = FMath::TruncToInt(EndY+0.5f);
+			EndPosY = FMath::Clamp<int32>(EndPosY, 0, (SrcHeight - 1));
+
+			int32 EndPosX = FMath::TruncToInt(EndX+0.5f);
+			EndPosX = FMath::Clamp<int32>(EndPosX, 0, (SrcWidth - 1));
+
+			FLinearColor LinearStepColor(0.0f, 0.0f, 0.0f, 0.0f);
+			for (int32 PixelX = PosX; PixelX <= EndPosX; PixelX++)
+			{
+				for (int32 PixelY = PosY; PixelY <= EndPosY; PixelY++)
+				{
+					int32 StartPixel = PixelX + PixelY * SrcWidth;
+
+					// Convert from gamma space to linear space before the addition.
+					LinearStepColor += SrcData[StartPixel];
+					PixelCount++;
+				}
+			}
+			LinearStepColor /= (float) PixelCount;
+
+			// Convert back from linear space to gamma space.
+			FColor FinalColor = LinearStepColor.ToFColor(true);
+
+			DstData[PixelPos] = FinalColor;
+
+			SrcX = EndX;
+			PixelPos++;
+		}
+
+		SrcY += StepSizeY;
+	}
+}
+
 enum class EChannel
 {
 	B = 0,
@@ -75,9 +143,11 @@ void PackTexture(const TCHAR* PackagePath,
 {
 	const FString PackageName = FString(PackagePath) + TextureName;
 	UPackage* Package = CreatePackage(nullptr, *PackageName);
+	Package->FullyLoad();
 
 	UTexture2D* Texture = NewObject<UTexture2D>(Package, TextureName, RF_Public | RF_Standalone);
 	Texture->Source.Init(InSizeX, InSizeY, 1, 1, TSF_BGRA8);
+	Texture->CompressionNoAlpha = !Alpha.IsSet();
 
 	const int32 BytesPerPixel = Texture->Source.GetBytesPerPixel();
 
@@ -104,13 +174,12 @@ void PackTexture(const TCHAR* PackagePath,
 				TArray64<uint8> Resized;
 				Resized.AddUninitialized(Size * BytesPerPixel);
 				const bool bLinearSpace = true;
-				FImageUtils::ImageResize(Texture.GetSizeX(),
-										 Texture.GetSizeY(),
-										 TArrayView<FColor>((FColor*) Bytes.GetData(), Bytes.Num() / 4),
-										 InSizeX,
-										 InSizeY,
-										 TArrayView<FColor>((FColor*) Resized.GetData(), Resized.Num() / 4),
-										 bLinearSpace);
+				ImageResize(Texture.GetSizeX(),
+							Texture.GetSizeY(),
+							TArrayView<FColor>((FColor*) Bytes.GetData(), Bytes.Num() / 4),
+							InSizeX,
+							InSizeY,
+							TArrayView<FColor>((FColor*) Resized.GetData(), Resized.Num() / 4));
 				Bytes = MoveTemp(Resized);
 			}
 		}
@@ -174,11 +243,13 @@ public:
 	{
 	}
 	SLATE_ARGUMENT(FChannelOptions*, OptionsSource)
+	SLATE_ARGUMENT(FChannelOptionsItem, InitialSelection)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs)
 	{
 		Options = *InArgs._OptionsSource;
+		Selected = InArgs._InitialSelection.IsValid() ? InArgs._InitialSelection : Options[0];
 
 		// clang-format off
 		ComboBox = 
@@ -186,7 +257,7 @@ public:
 			.OptionsSource(&Options)
 			.OnGenerateWidget(this, &SChannelComboBox::OnGenerateWidget)
 			.OnSelectionChanged(this, &SChannelComboBox::OnSelectionChanged)
-			.InitiallySelectedItem(Options[0])
+			.InitiallySelectedItem(Selected)
 			[
 				SNew(SHorizontalBox)
 				+SHorizontalBox::Slot()
@@ -345,9 +416,12 @@ public:
 		auto GreenChannel = SNew(SChannelComboBox).OptionsSource(&ChannelOptions);
 		auto BlueChannel = SNew(SChannelComboBox).OptionsSource(&ChannelOptions);
 		auto AlphaChannel =
-			SNew(SChannelComboBox).OptionsSource(&ChannelOptions).Visibility_Lambda([UseAlphaCheckbox]() {
-				return UseAlphaCheckbox->IsChecked() ? EVisibility::Visible : EVisibility::Collapsed;
-			});
+			SNew(SChannelComboBox)
+				.OptionsSource(&ChannelOptions)
+				.InitialSelection(ChannelOptions[1])
+				.Visibility_Lambda([UseAlphaCheckbox]() {
+					return UseAlphaCheckbox->IsChecked() ? EVisibility::Visible : EVisibility::Collapsed;
+				});
 
 		// clang-format off
 		ChildSlot
