@@ -147,6 +147,7 @@ void PackTexture(const TCHAR* PackagePath,
 
 	UTexture2D* Texture = NewObject<UTexture2D>(Package, TextureName, RF_Public | RF_Standalone);
 	Texture->Source.Init(InSizeX, InSizeY, 1, 1, TSF_BGRA8);
+	Texture->CompressionSettings = TextureCompressionSettings::TC_Masks;
 	Texture->CompressionNoAlpha = !Alpha.IsSet();
 
 	const int32 BytesPerPixel = Texture->Source.GetBytesPerPixel();
