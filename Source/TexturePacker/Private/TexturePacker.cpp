@@ -227,7 +227,7 @@ void PackTexture(const TCHAR* PackagePath,
 		if (ChannelOption.Texture != nullptr)
 		{
 			FTextureSource& Texture = ChannelOption.Texture->Source;
-			bSRGB = ChannelOption.Texture->SRGB;
+			bSRGB = ChannelOption.Texture->SRGB && ChannelOption.Channel != EChannel::A;
 			Texture.GetMipData(Bytes, 0);
 			BytesPerPixel = Texture.GetBytesPerPixel();
 
@@ -277,9 +277,7 @@ void PackTexture(const TCHAR* PackagePath,
 			float BLin = sRGBToLinearTable[B];
 			BLin = Channel.bInvert ? 1.f - BLin : BLin;
 
-			int32 Exponent;
-			const float Scale = (float)frexp(BLin, &Exponent) / BLin * 255.f;
-			return (uint8)FMath::Clamp(FMath::TruncToInt(BLin * Scale), 0, 255);
+			return (uint8)FMath::FloorToInt(BLin * 255.999f);
 		}
 		return Channel.bInvert ? MAX_uint8 - B : B;
 	};
