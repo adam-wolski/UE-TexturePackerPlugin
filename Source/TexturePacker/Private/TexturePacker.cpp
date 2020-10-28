@@ -14,6 +14,7 @@
 #include "Widgets/Input/SButton.h"					 // SButton
 #include "Widgets/Input/SCheckBox.h"				 // SCheckBox
 #include "Widgets/Input/SComboBox.h"				 // SComboBox
+#include "Widgets/Layout/SSeparator.h"				 // SSeparator
 #include "Widgets/SBoxPanel.h"						 // SVerticalBox
 #include "Widgets/SCompoundWidget.h"				 // SCompoundWidget
 #include "Widgets/SWindow.h"						 // SWindow
@@ -51,18 +52,26 @@ FText ChannelToText(EChannel Channel)
 	return LOCTEXT("Error", "Error");
 };
 
-using FChannelOptionsItemInner = TPair<UTexture*, EChannel>;
-using FChannelOptionsItem = TSharedPtr<FChannelOptionsItemInner>;
+struct FChannelOption
+{
+	FChannelOption(UTexture* InTexture, EChannel InChannel, bool bInInvert = false)
+		: Texture(InTexture), Channel(InChannel), bInvert(bInInvert){};
+
+	UTexture* Texture;
+	EChannel Channel;
+	bool bInvert;
+};
+using FChannelOptionsItem = TSharedPtr<FChannelOption>;
 using FChannelOptions = TArray<FChannelOptionsItem>;
 
 void PackTexture(const TCHAR* PackagePath,
 				 const TCHAR* TextureName,
 				 int32 InSizeX,
 				 int32 InSizeY,
-				 FChannelOptionsItemInner Red,
-				 FChannelOptionsItemInner Green,
-				 FChannelOptionsItemInner Blue,
-				 TOptional<FChannelOptionsItemInner> Alpha)
+				 FChannelOption Red,
+				 FChannelOption Green,
+				 FChannelOption Blue,
+				 TOptional<FChannelOption> Alpha)
 {
 	const FString PackageName = FString(PackagePath) + TextureName;
 	UPackage* Package = CreatePackage(nullptr, *PackageName);
@@ -79,13 +88,14 @@ void PackTexture(const TCHAR* PackagePath,
 		TArray64<uint8> Bytes;
 		int32 BytesPerPixel;
 		int32 ChannelOffset;
+		bool bInvert;
 	};
-	auto ChannelOptionBytes = [Size, InSizeX, InSizeY](FChannelOptionsItemInner ChannelOption) -> FChannelOptionBytes {
+	auto ChannelOptionBytes = [Size, InSizeX, InSizeY](FChannelOption ChannelOption) -> FChannelOptionBytes {
 		TArray64<uint8> Bytes;
 		int32 BytesPerPixel = 1;
-		if (ChannelOption.Key != nullptr)
+		if (ChannelOption.Texture != nullptr)
 		{
-			FTextureSource& Texture = ChannelOption.Key->Source;
+			FTextureSource& Texture = ChannelOption.Texture->Source;
 			Texture.GetMipData(Bytes, 0);
 			BytesPerPixel = Texture.GetBytesPerPixel();
 
@@ -106,7 +116,7 @@ void PackTexture(const TCHAR* PackagePath,
 		}
 		else
 		{
-			if (ChannelOption.Value == EChannel::Black)
+			if (ChannelOption.Channel == EChannel::Black)
 			{
 				Bytes.AddZeroed(Size);
 			}
@@ -117,16 +127,16 @@ void PackTexture(const TCHAR* PackagePath,
 			}
 		}
 
-		int32 ChannelOffset = ChannelOption.Value < EChannel::White ? int32(ChannelOption.Value) : 0;
+		int32 ChannelOffset = ChannelOption.Channel < EChannel::White ? int32(ChannelOption.Channel) : 0;
 
-		return {MoveTemp(Bytes), BytesPerPixel, ChannelOffset};
+		return {MoveTemp(Bytes), BytesPerPixel, ChannelOffset, ChannelOption.bInvert};
 	};
 
-	auto [RedBytes, RedBytesPerPixel, RedOffset] = ChannelOptionBytes(Red);
-	auto [GreenBytes, GreenBytesPerPixel, GreenOffset] = ChannelOptionBytes(Green);
-	auto [BlueBytes, BlueBytesPerPixel, BlueOffset] = ChannelOptionBytes(Blue);
-	auto [AlphaBytes, AlphaBytesPerPixel, AlphaOffset] =
-		ChannelOptionBytes(Alpha ? Alpha.GetValue() : FChannelOptionsItemInner(nullptr, EChannel::Black));
+	auto [RedBytes, RedBytesPerPixel, RedOffset, bRedInvert] = ChannelOptionBytes(Red);
+	auto [GreenBytes, GreenBytesPerPixel, GreenOffset, bGreenInvert] = ChannelOptionBytes(Green);
+	auto [BlueBytes, BlueBytesPerPixel, BlueOffset, bBlueInvert] = ChannelOptionBytes(Blue);
+	auto [AlphaBytes, AlphaBytesPerPixel, AlphaOffset, bAlphaInvert] =
+		ChannelOptionBytes(Alpha ? Alpha.GetValue() : FChannelOption{nullptr, EChannel::Black, false});
 
 	uint8* Bytes = Texture->Source.LockMip(0);
 
@@ -135,9 +145,16 @@ void PackTexture(const TCHAR* PackagePath,
 		uint8* Pixel = &Bytes[PixelIdx * BytesPerPixel];
 
 		Pixel[0] = GreenBytes[PixelIdx * GreenBytesPerPixel + GreenOffset];
+		Pixel[0] = bGreenInvert ? MAX_uint8 - Pixel[0] : Pixel[0];
+
 		Pixel[1] = BlueBytes[PixelIdx * BlueBytesPerPixel + BlueOffset];
+		Pixel[1] = bBlueInvert ? MAX_uint8 - Pixel[1] : Pixel[1];
+
 		Pixel[2] = RedBytes[PixelIdx * RedBytesPerPixel + RedOffset];
+		Pixel[2] = bRedInvert ? MAX_uint8 - Pixel[2] : Pixel[2];
+
 		Pixel[3] = AlphaBytes[PixelIdx * AlphaBytesPerPixel + AlphaOffset];
+		Pixel[3] = bAlphaInvert ? MAX_uint8 - Pixel[3] : Pixel[3];
 	}
 
 	Texture->Source.UnlockMip(0);
@@ -145,21 +162,25 @@ void PackTexture(const TCHAR* PackagePath,
 
 	Package->MarkPackageDirty();
 	FAssetRegistryModule::AssetCreated(Texture);
-	FString PackageFilename = FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
+	FString PackageFilename =
+		FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
 	UPackage::SavePackage(Package, Texture, RF_Public | RF_Standalone, *PackageFilename);
 }
 
 class SChannelComboBox final : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(SChannelComboBox) {}
-		SLATE_ARGUMENT(FChannelOptions*, OptionsSource)
+	SLATE_BEGIN_ARGS(SChannelComboBox)
+	{
+	}
+	SLATE_ARGUMENT(FChannelOptions*, OptionsSource)
 	SLATE_END_ARGS()
 
 	void Construct(const FArguments& InArgs)
 	{
 		Options = *InArgs._OptionsSource;
 
+		// clang-format off
 		ComboBox = 
 		   SNew(SComboBox<FChannelOptionsItem>)
 			.OptionsSource(&Options)
@@ -167,46 +188,106 @@ public:
 			.OnSelectionChanged(this, &SChannelComboBox::OnSelectionChanged)
 			.InitiallySelectedItem(Options[0])
 			[
-				SNew(STextBlock).Text(this, &SChannelComboBox::GetCurrentLabel)
+				SNew(SHorizontalBox)
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				[
+					SNew(STextBlock).Text(this, &SChannelComboBox::GetCurrentLabel)
+				]
+				+SHorizontalBox::Slot()
+				.AutoWidth()
+				[
+					SNew(SHorizontalBox)
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(SSeparator)
+					]
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(STextBlock).Text(LOCTEXT("Invert", "Invert"))
+						.Visibility(this, &SChannelComboBox::GetInvertCheckBoxVisibility)
+					]
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(SCheckBox)
+						.IsChecked(this, &SChannelComboBox::GetCurrentInverted)
+						.Visibility(this, &SChannelComboBox::GetInvertCheckBoxVisibility)
+						.OnCheckStateChanged(this, &SChannelComboBox::OnInvertCheckStateChangedateChanged)
+					]
+				]
 			];
 
 		ChildSlot
 		[
 			ComboBox.ToSharedRef()
 		];
+		// clang-format on
 	}
 
 	FChannelOptionsItem GetSelectedItem() const
 	{
 		return Selected;
 	}
-	
+
+private:
+	EVisibility GetInvertCheckBoxVisibility() const
+	{
+		if (Selected.IsValid() && Selected->Texture != nullptr)
+		{
+			return EVisibility::Visible;
+		}
+		return EVisibility::Collapsed;
+	}
+
 	void OnSelectionChanged(FChannelOptionsItem InSelection, ESelectInfo::Type /*SelectInfo*/)
 	{
 		Selected = InSelection;
 	}
 
-	FText GetCurrentLabel() const
+	void OnInvertCheckStateChangedateChanged(ECheckBoxState CheckState)
 	{
-		return OptionLabel(Selected);
+		Selected->bInvert = CheckState == ECheckBoxState::Checked ? true : false;
 	}
 
-	FText OptionLabel(FChannelOptionsItem Item) const
+	ECheckBoxState GetCurrentInverted() const
+	{
+		return Selected->bInvert ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+	}
+
+	FText GetCurrentLabel() const
+	{
+		return OptionLabel(Selected, false);
+	}
+
+	FText OptionLabel(FChannelOptionsItem Item, bool bCheckInvertedState = true) const
 	{
 		if (!Item.IsValid())
 		{
 			return LOCTEXT("SelectOverride", "Select channel override");
 		}
-		if (Item->Key == nullptr)
+
+		FText Label = [&]() {
+			if (Item->Texture == nullptr)
+			{
+				return ChannelToText(Item->Channel);
+			}
+			else
+			{
+				return FText::Format(FTextFormat::FromString(TEXT("{0} {1}")),
+									 FText::FromString(Item->Texture->GetName()),
+									 ChannelToText(Item->Channel));
+			}
+		}();
+
+		if (Item->bInvert && bCheckInvertedState)
 		{
-			return ChannelToText(Item->Value);
+			Label = FText::Format(FTextFormat::FromString(TEXT("{0} Inverted")), Label);
 		}
-		else
-		{
-			return FText::Format(FTextFormat::FromString(TEXT("{0} {1}")),
-								 FText::FromString(Item->Key->GetName()),
-								 ChannelToText(Item->Value));
-		}
+
+		return Label;
 	}
 
 	TSharedRef<SWidget> OnGenerateWidget(FChannelOptionsItem Item)
@@ -214,8 +295,6 @@ public:
 		return SNew(STextBlock).Text(OptionLabel(Item));
 	};
 
-
-private:
 	FChannelOptionsItem Selected;
 	FChannelOptions Options;
 	TSharedPtr<SComboBox<FChannelOptionsItem>> ComboBox;
@@ -224,7 +303,9 @@ private:
 class STexturePacker final : public SCompoundWidget
 {
 public:
-	SLATE_BEGIN_ARGS(STexturePacker) {}
+	SLATE_BEGIN_ARGS(STexturePacker)
+	{
+	}
 	SLATE_END_ARGS()
 
 	FChannelOptions ChannelOptions;
@@ -232,9 +313,9 @@ public:
 	void Construct(const FArguments& InArgs, TSharedRef<SWindow>& Window, TArray<UTexture*> InTextures)
 	{
 		Textures = MoveTemp(InTextures);
-		
-		ChannelOptions.Add(MakeShared<FChannelOptionsItemInner>(nullptr, EChannel::Black));
-		ChannelOptions.Add(MakeShared<FChannelOptionsItemInner>(nullptr, EChannel::White));
+
+		ChannelOptions.Add(MakeShared<FChannelOption>(nullptr, EChannel::Black));
+		ChannelOptions.Add(MakeShared<FChannelOption>(nullptr, EChannel::White));
 		for (UTexture* Texture : Textures)
 		{
 			const ETextureSourceFormat Format = Texture->Source.GetFormat();
@@ -247,14 +328,14 @@ public:
 				case ETextureSourceFormat::TSF_RGBA8:
 				case ETextureSourceFormat::TSF_RGBE8:
 				{
-					ChannelOptions.Add(MakeShared<FChannelOptionsItemInner>(Texture, EChannel::R));
-					ChannelOptions.Add(MakeShared<FChannelOptionsItemInner>(Texture, EChannel::G));
-					ChannelOptions.Add(MakeShared<FChannelOptionsItemInner>(Texture, EChannel::B));
-					ChannelOptions.Add(MakeShared<FChannelOptionsItemInner>(Texture, EChannel::A));
+					ChannelOptions.Add(MakeShared<FChannelOption>(Texture, EChannel::R));
+					ChannelOptions.Add(MakeShared<FChannelOption>(Texture, EChannel::G));
+					ChannelOptions.Add(MakeShared<FChannelOption>(Texture, EChannel::B));
+					ChannelOptions.Add(MakeShared<FChannelOption>(Texture, EChannel::A));
 					break;
 				}
 				default:
-					ChannelOptions.Add(MakeShared<FChannelOptionsItemInner>(Texture, EChannel::R));
+					ChannelOptions.Add(MakeShared<FChannelOption>(Texture, EChannel::R));
 			}
 		}
 
@@ -262,12 +343,13 @@ public:
 
 		auto RedChannel = SNew(SChannelComboBox).OptionsSource(&ChannelOptions);
 		auto GreenChannel = SNew(SChannelComboBox).OptionsSource(&ChannelOptions);
-		auto BlueChannel =  SNew(SChannelComboBox).OptionsSource(&ChannelOptions);
+		auto BlueChannel = SNew(SChannelComboBox).OptionsSource(&ChannelOptions);
 		auto AlphaChannel =
 			SNew(SChannelComboBox).OptionsSource(&ChannelOptions).Visibility_Lambda([UseAlphaCheckbox]() {
 				return UseAlphaCheckbox->IsChecked() ? EVisibility::Visible : EVisibility::Collapsed;
 			});
 
+		// clang-format off
 		ChildSlot
 		[
 			SNew(SVerticalBox)
@@ -325,7 +407,7 @@ public:
 					int32 MinY = MAX_int32;
 
 					auto FindMin = [&MinX, &MinY](const TSharedRef<SChannelComboBox>& Combo) {
-						if (UTexture* Texture = Combo->GetSelectedItem().Get()->Key)
+						if (UTexture* Texture = Combo->GetSelectedItem().Get()->Texture)
 						{
 							MinX = FMath::Min(MinX, Texture->Source.GetSizeX());
 							MinY = FMath::Min(MinY, Texture->Source.GetSizeY());
@@ -353,13 +435,14 @@ public:
 								*BlueChannel->GetSelectedItem().Get(),
 								*GreenChannel->GetSelectedItem().Get(),
 								UseAlphaCheckbox->IsChecked()
-									? TOptional<FChannelOptionsItemInner>(*AlphaChannel->GetSelectedItem().Get())
-									: TOptional<FChannelOptionsItemInner>());
+									? TOptional<FChannelOption>(*AlphaChannel->GetSelectedItem().Get())
+									: TOptional<FChannelOption>());
 					Window->RequestDestroyWindow();
 					return FReply::Handled();
 				})
 			]
 		];
+		// clang-format on
 	}
 
 private:
@@ -384,7 +467,7 @@ class FTexturePackerModule final : public IModuleInterface
 					TArray<UTexture*> Textures = [&]() {
 						TArray<UTexture*> Textures;
 
-						for (const FAssetData& AssetData : SelectedAssets)	
+						for (const FAssetData& AssetData : SelectedAssets)
 						{
 							if (UTexture* Texture = Cast<UTexture>(AssetData.GetAsset()))
 							{
@@ -413,8 +496,7 @@ class FTexturePackerModule final : public IModuleInterface
 					FUIAction Action{FExecuteAction::CreateLambda(ShowPackerWindow)};
 
 					MenuBuilder.AddMenuEntry(LOCTEXT("TexturePackerEntry", "Pack Textures"),
-											 LOCTEXT("TexturePackerEntryTooltip",
-													 "Channel pack selected textures"),
+											 LOCTEXT("TexturePackerEntryTooltip", "Channel pack selected textures"),
 											 FSlateIcon(),
 											 Action);
 				};
