@@ -1,22 +1,23 @@
 #include "CoreMinimal.h"
 
-#include "AssetRegistryModule.h"					 // FAssetRegistryModule
-#include "ContentBrowserModule.h"					 // FContentBrowserModule
-#include "Engine/Texture.h"							 // UTexture
-#include "Engine/Texture2D.h"						 // UTexture2D
-#include "Framework/Application/SlateApplication.h"	 // FSlateApplication
-#include "Framework/MultiBox/MultiBoxBuilder.h"		 // FMenuBuilder
-#include "IContentBrowserSingleton.h"				 // CreateModalSaveAssetDialog
-#include "Modules/ModuleManager.h"					 // FModuleManager
-#include "Widgets/DeclarativeSyntaxSupport.h"		 // SLATE_BEGIN_ARGS
-#include "Widgets/Input/SButton.h"					 // SButton
-#include "Widgets/Input/SCheckBox.h"				 // SCheckBox
-#include "Widgets/Input/SComboBox.h"				 // SComboBox
-#include "Widgets/Layout/SSeparator.h"				 // SSeparator
-#include "Widgets/SBoxPanel.h"						 // SVerticalBox
-#include "Widgets/SCompoundWidget.h"				 // SCompoundWidget
-#include "Widgets/SWindow.h"						 // SWindow
-#include "Widgets/Text/STextBlock.h"				 // STextBlock
+#include "Algo/Transform.h"
+#include "AssetRegistryModule.h"
+#include "ContentBrowserModule.h"
+#include "Engine/Texture.h"
+#include "Engine/Texture2D.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Framework/MultiBox/MultiBoxBuilder.h"
+#include "IContentBrowserSingleton.h"
+#include "Modules/ModuleManager.h"
+#include "Widgets/DeclarativeSyntaxSupport.h"
+#include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SCheckBox.h"
+#include "Widgets/Input/SComboBox.h"
+#include "Widgets/Layout/SSeparator.h"
+#include "Widgets/SBoxPanel.h"
+#include "Widgets/SCompoundWidget.h"
+#include "Widgets/SWindow.h"
+#include "Widgets/Text/STextBlock.h"
 
 #define LOCTEXT_NAMESPACE "TexturePacker"
 
@@ -91,8 +92,8 @@ void ImageResize(int32 SrcWidth,
 	float SrcX = 0;
 	float SrcY = 0;
 
-	const float StepSizeX = SrcWidth / (float)DstWidth;
-	const float StepSizeY = SrcHeight / (float)DstHeight;
+	const float StepSizeX = SrcWidth / static_cast<float>(DstWidth);
+	const float StepSizeY = SrcHeight / static_cast<float>(DstHeight);
 
 	for(int32 Y=0; Y<DstHeight;Y++)
 	{
@@ -102,8 +103,8 @@ void ImageResize(int32 SrcWidth,
 		for(int32 X=0; X<DstWidth; X++)
 		{
 			int32 PixelCount = 0;
-			float EndX = SrcX + StepSizeX;
-			float EndY = SrcY + StepSizeY;
+			const float EndX = SrcX + StepSizeX;
+			const float EndY = SrcY + StepSizeY;
 			
 			// Generate a rectangular region of pixels and then find the average color of the region.
 			int32 PosY = FMath::TruncToInt(SrcY+0.5f);
@@ -123,17 +124,17 @@ void ImageResize(int32 SrcWidth,
 			{
 				for (int32 PixelY = PosY; PixelY <= EndPosY; PixelY++)
 				{
-					int32 StartPixel = PixelX + PixelY * SrcWidth;
+					const int32 StartPixel = PixelX + PixelY * SrcWidth;
 
 					// Convert from gamma space to linear space before the addition.
 					LinearStepColor += SrcData[StartPixel];
 					PixelCount++;
 				}
 			}
-			LinearStepColor /= (float) PixelCount;
+			LinearStepColor /= static_cast<float>(PixelCount);
 
 			// Convert back from linear space to gamma space.
-			FColor FinalColor = LinearStepColor.ToFColor(true);
+			const FColor FinalColor = LinearStepColor.ToFColor(true);
 
 			DstData[PixelPos] = FinalColor;
 
@@ -197,7 +198,7 @@ void PackTexture(const TCHAR* PackagePath,
 				 TOptional<FChannelOption> Alpha)
 {
 	const FString PackageName = FString(PackagePath) + TextureName;
-	UPackage* Package = CreatePackage(nullptr, *PackageName);
+	UPackage* Package = CreatePackage(*PackageName);
 	Package->FullyLoad();
 
 	UTexture2D* Texture = NewObject<UTexture2D>(Package, TextureName, RF_Public | RF_Standalone);
@@ -235,10 +236,10 @@ void PackTexture(const TCHAR* PackagePath,
 				Resized.AddUninitialized(Size * BytesPerPixel);
 				ImageResize(Texture.GetSizeX(),
 							Texture.GetSizeY(),
-							TArrayView<FColor>((FColor*) Bytes.GetData(), Bytes.Num() / 4),
+							TArrayView<FColor>(reinterpret_cast<FColor*>(Bytes.GetData()), Bytes.Num() / 4),
 							InSizeX,
 							InSizeY,
-							TArrayView<FColor>((FColor*) Resized.GetData(), Resized.Num() / 4));
+							TArrayView<FColor>(reinterpret_cast<FColor*>(Resized.GetData()), Resized.Num() / 4));
 				Bytes = MoveTemp(Resized);
 			}
 		}
@@ -255,7 +256,7 @@ void PackTexture(const TCHAR* PackagePath,
 			}
 		}
 
-		int32 ChannelOffset = ChannelOption.Channel < EChannel::White ? int32(ChannelOption.Channel) : 0;
+		const int32 ChannelOffset = ChannelOption.Channel < EChannel::White ? int32(ChannelOption.Channel) : 0;
 
 		return {MoveTemp(Bytes), BytesPerPixel, ChannelOffset, ChannelOption.bInvert, bSRGB};
 	};
@@ -275,7 +276,7 @@ void PackTexture(const TCHAR* PackagePath,
 			float BLin = sRGBToLinearTable[B];
 			BLin = Channel.bInvert ? 1.f - BLin : BLin;
 
-			return (uint8)FMath::FloorToInt(BLin * 255.999f);
+			return uint8(FMath::FloorToInt(BLin * 255.999f));
 		}
 		return Channel.bInvert ? MAX_uint8 - B : B;
 	};
@@ -293,9 +294,9 @@ void PackTexture(const TCHAR* PackagePath,
 	Texture->Source.UnlockMip(0);
 	Texture->UpdateResource();
 
-	Package->MarkPackageDirty();
+	ensure(Package->MarkPackageDirty());
 	FAssetRegistryModule::AssetCreated(Texture);
-	FString PackageFilename =
+	const FString PackageFilename =
 		FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
 	UPackage::SavePackage(Package, Texture, RF_Public | RF_Standalone, *PackageFilename);
 }
@@ -350,7 +351,7 @@ public:
 						SNew(SCheckBox)
 						.IsChecked(this, &SChannelComboBox::GetCurrentInverted)
 						.Visibility(this, &SChannelComboBox::GetInvertCheckBoxVisibility)
-						.OnCheckStateChanged(this, &SChannelComboBox::OnInvertCheckStateChangedateChanged)
+						.OnCheckStateChanged(this, &SChannelComboBox::OnInvertCheckStateChanged)
 					]
 				]
 			];
@@ -382,7 +383,7 @@ private:
 		Selected = InSelection;
 	}
 
-	void OnInvertCheckStateChangedateChanged(ECheckBoxState CheckState)
+	void OnInvertCheckStateChanged(const ECheckBoxState CheckState) const
 	{
 		Selected->bInvert = CheckState == ECheckBoxState::Checked ? true : false;
 	}
@@ -425,7 +426,7 @@ private:
 		return Label;
 	}
 
-	TSharedRef<SWidget> OnGenerateWidget(FChannelOptionsItem Item)
+	TSharedRef<SWidget> OnGenerateWidget(const FChannelOptionsItem Item) const
 	{
 		return SNew(STextBlock).Text(OptionLabel(Item));
 	};
@@ -445,13 +446,13 @@ public:
 
 	FChannelOptions ChannelOptions;
 
-	void Construct(const FArguments& InArgs, TSharedRef<SWindow>& Window, TArray<UTexture*> InTextures)
+	void Construct(const FArguments& InArgs, TSharedRef<SWindow>& Window, TArray<UTexture2D*> InTextures)
 	{
 		Textures = MoveTemp(InTextures);
 
 		ChannelOptions.Add(MakeShared<FChannelOption>(nullptr, EChannel::Black));
 		ChannelOptions.Add(MakeShared<FChannelOption>(nullptr, EChannel::White));
-		for (UTexture* Texture : Textures)
+		for (UTexture2D* Texture : Textures)
 		{
 			const ETextureSourceFormat Format = Texture->Source.GetFormat();
 			switch (Format)
@@ -584,12 +585,13 @@ public:
 	}
 
 private:
-	TArray<UTexture*> Textures;
+	TArray<UTexture2D*> Textures;
 };
+
 
 class FTexturePackerModule final : public IModuleInterface
 {
-	void StartupModule() override
+	virtual void StartupModule() override
 	{
 		FContentBrowserModule& ContentBrowserModule =
 			FModuleManager::LoadModuleChecked<FContentBrowserModule>(TEXT("ContentBrowser"));
@@ -597,56 +599,56 @@ class FTexturePackerModule final : public IModuleInterface
 		TArray<FContentBrowserMenuExtender_SelectedAssets>& MenuExtenders =
 			ContentBrowserModule.GetAllAssetViewContextMenuExtenders();
 
-		MenuExtenders.Add(FContentBrowserMenuExtender_SelectedAssets::CreateLambda(
-			[](const TArray<FAssetData>& SelectedAssets) -> TSharedRef<FExtender> {
-				TSharedRef<FExtender> Extender = MakeShared<FExtender>();
-
-				auto MenuExtension = [&SelectedAssets](FMenuBuilder& MenuBuilder) {
-					TArray<UTexture*> Textures = [&]() {
-						TArray<UTexture*> Textures;
-
-						for (const FAssetData& AssetData : SelectedAssets)
-						{
-							if (UTexture* Texture = Cast<UTexture>(AssetData.GetAsset()))
-							{
-								Textures.Add(Texture);
-							}
-						}
-
-						return Textures;
-					}();
-
-					if (!Textures.Num())
-					{
-						return;
-					}
-
-					auto ShowPackerWindow = [&SelectedAssets, Textures = MoveTemp(Textures)]() mutable {
-						TSharedRef<SWindow> PackerWindow = SNew(SWindow)
-															   .Title(LOCTEXT("PackerWindow", "Texture Packer"))
-															   .SizingRule(ESizingRule::Autosized);
-
-						PackerWindow->SetContent(SNew(STexturePacker, PackerWindow, MoveTemp(Textures)));
-
-						FSlateApplication::Get().AddWindow(PackerWindow);
-					};
-
-					FUIAction Action{FExecuteAction::CreateLambda(ShowPackerWindow)};
-
-					MenuBuilder.AddMenuEntry(LOCTEXT("TexturePackerEntry", "Pack Textures"),
-											 LOCTEXT("TexturePackerEntryTooltip", "Channel pack selected textures"),
-											 FSlateIcon(),
-											 Action);
-				};
-
-				Extender->AddMenuExtension("CommonAssetActions",
-										   EExtensionHook::After,
-										   nullptr,
-										   FMenuExtensionDelegate::CreateLambda(MenuExtension));
-
-				return Extender;
-			}));
+		MenuExtenders.Add(
+			FContentBrowserMenuExtender_SelectedAssets::CreateStatic(&ContentBrowserMenuExtender_SelectedAssets));
 	}
+
+	static TSharedRef<FExtender> ContentBrowserMenuExtender_SelectedAssets(const TArray<FAssetData>& SelectedAssets)
+	{
+		TSharedRef<FExtender> Extender = MakeShared<FExtender>();
+
+		const FAssetData* FoundTextureAsset = SelectedAssets.FindByPredicate(
+			[](const FAssetData& AssetData) { return AssetData.AssetClass == UTexture2D::StaticClass()->GetFName(); });
+
+		if (!FoundTextureAsset)
+		{
+			return Extender;
+		}
+
+		auto MenuExtension = [SelectedAssets](FMenuBuilder& MenuBuilder) {
+			const FUIAction Action{
+				FExecuteAction::CreateStatic(&FTexturePackerModule::ShowPackerWindow, SelectedAssets)};
+
+			MenuBuilder.AddMenuEntry(LOCTEXT("TexturePackerEntry", "Pack Textures"),
+									 LOCTEXT("TexturePackerEntryTooltip", "Channel pack selected textures"),
+									 FSlateIcon(),
+									 Action);
+		};
+
+		Extender->AddMenuExtension("CommonAssetActions",
+								   EExtensionHook::After,
+								   nullptr,
+								   FMenuExtensionDelegate::CreateLambda(MenuExtension));
+
+		return Extender;
+	}
+
+	static void ShowPackerWindow(const TArray<FAssetData> SelectedAssets)
+	{
+    	TSharedRef<SWindow> PackerWindow =
+    		SNew(SWindow).Title(LOCTEXT("PackerWindow", "Texture Packer")).SizingRule(ESizingRule::Autosized);
+    	
+    	TArray<UTexture2D*> Textures;
+		Algo::TransformIf(
+			SelectedAssets,
+			Textures,
+			[](const FAssetData& AssetData) { return AssetData.AssetClass == UTexture2D::StaticClass()->GetFName(); },
+			[](const FAssetData& AssetData) { return Cast<UTexture2D>(AssetData.GetAsset()); });
+
+		PackerWindow->SetContent(SNew(STexturePacker, PackerWindow, MoveTemp(Textures)));
+    
+    	FSlateApplication::Get().AddWindow(PackerWindow);
+    };
 
 	FContentBrowserMenuExtender_SelectedAssets MenuExtenderHandle;
 };
