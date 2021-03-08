@@ -21,6 +21,7 @@
 
 #define LOCTEXT_NAMESPACE "TexturePacker"
 
+// clang-format off
 // Copied form Math\Color.cpp. Wasn't in exported symbols
 float sRGBToLinearTable[256] =
 {
@@ -77,15 +78,45 @@ float sRGBToLinearTable[256] =
 	0.921581853023715f, 0.930110855104312f, 0.938685725169219f, 0.947306533426946f, 0.955973349925421f,
 	0.964686244552961f, 0.973445287039244f, 0.982250546956257f, 0.991102093719252f, 1.0f
 };
+// clang-format on
 
-// Copied from FImageUtils to fix alpha channel not being resized
-void ImageResize(int32 SrcWidth,
-				 int32 SrcHeight,
-				 const TArrayView<const FColor>& SrcData,
-				 int32 DstWidth,
-				 int32 DstHeight,
-				 const TArrayView<FColor>& DstData)
+uint8 ToGammaSpaceFromLinear(const float In, const bool bSRGB)
 {
+	float Out = FMath::Clamp(In, 0.0f, 1.0f);
+
+	if (bSRGB)
+	{
+		Out = Out <= 0.0031308f ? Out * 12.92f : FMath::Pow(Out, 1.0f / 2.4f) * 1.055f - 0.055f;
+	}
+
+	return uint8(FMath::FloorToInt(Out * 255.999f));
+}
+
+/**
+ * @brief Resize given image to new size
+ *
+ * Copied from FImageUtils to fix alpha channel not being resized and added option for grayscale images
+ *
+ * @tparam ColorType Type stored in pixels. FColor, uint8 or uint16
+ * @param SrcWidth X size of the source image
+ * @param SrcHeight Y size of the source image
+ * @param SrcData Data that will be resized to new size
+ * @param DstWidth X size of the destination image
+ * @param DstHeight Y size of the destination image
+ * @param DstData Resized image data
+ */
+template <typename ColorType>
+void ImageResize(const int32 SrcWidth,
+				 const int32 SrcHeight,
+				 const TArrayView<const ColorType> SrcData,
+				 const int32 DstWidth,
+				 const int32 DstHeight,
+				 const TArrayView<ColorType> DstData)
+{
+	static_assert(TIsSame<ColorType, FColor>::Value || TIsSame<ColorType, uint8>::Value
+					  || TIsSame<ColorType, uint16>::Value,
+				  "Unsupported color type");
+
 	check(SrcData.Num() >= SrcWidth * SrcHeight);
 	check(DstData.Num() >= DstWidth * DstHeight);
 
@@ -95,48 +126,89 @@ void ImageResize(int32 SrcWidth,
 	const float StepSizeX = SrcWidth / static_cast<float>(DstWidth);
 	const float StepSizeY = SrcHeight / static_cast<float>(DstHeight);
 
-	for(int32 Y=0; Y<DstHeight;Y++)
+	for (int32 Y = 0; Y < DstHeight; Y++)
 	{
 		int32 PixelPos = Y * DstWidth;
-		SrcX = 0.0f;	
-	
-		for(int32 X=0; X<DstWidth; X++)
+		SrcX = 0.0f;
+
+		for (int32 X = 0; X < DstWidth; X++)
 		{
 			int32 PixelCount = 0;
 			const float EndX = SrcX + StepSizeX;
 			const float EndY = SrcY + StepSizeY;
-			
+
 			// Generate a rectangular region of pixels and then find the average color of the region.
-			int32 PosY = FMath::TruncToInt(SrcY+0.5f);
+			int32 PosY = FMath::TruncToInt(SrcY + 0.5f);
 			PosY = FMath::Clamp<int32>(PosY, 0, (SrcHeight - 1));
 
-			int32 PosX = FMath::TruncToInt(SrcX+0.5f);
+			int32 PosX = FMath::TruncToInt(SrcX + 0.5f);
 			PosX = FMath::Clamp<int32>(PosX, 0, (SrcWidth - 1));
 
-			int32 EndPosY = FMath::TruncToInt(EndY+0.5f);
+			int32 EndPosY = FMath::TruncToInt(EndY + 0.5f);
 			EndPosY = FMath::Clamp<int32>(EndPosY, 0, (SrcHeight - 1));
 
-			int32 EndPosX = FMath::TruncToInt(EndX+0.5f);
+			int32 EndPosX = FMath::TruncToInt(EndX + 0.5f);
 			EndPosX = FMath::Clamp<int32>(EndPosX, 0, (SrcWidth - 1));
 
-			FLinearColor LinearStepColor(0.0f, 0.0f, 0.0f, 0.0f);
-			for (int32 PixelX = PosX; PixelX <= EndPosX; PixelX++)
+			if constexpr (TIsSame<ColorType, FColor>::Value)
 			{
-				for (int32 PixelY = PosY; PixelY <= EndPosY; PixelY++)
+				FLinearColor LinearStepColor(0.0f, 0.0f, 0.0f, 0.0f);
+				for (int32 PixelX = PosX; PixelX <= EndPosX; PixelX++)
 				{
-					const int32 StartPixel = PixelX + PixelY * SrcWidth;
+					for (int32 PixelY = PosY; PixelY <= EndPosY; PixelY++)
+					{
+						const int32 StartPixel = PixelX + PixelY * SrcWidth;
 
-					// Convert from gamma space to linear space before the addition.
-					LinearStepColor += SrcData[StartPixel];
-					PixelCount++;
+						LinearStepColor += FLinearColor(SrcData[StartPixel]);
+						PixelCount++;
+					}
+				}
+				LinearStepColor /= static_cast<float>(PixelCount);
+
+				// Convert back from linear space to gamma space.
+				const FColor FinalColor = LinearStepColor.ToFColor(true);
+
+				DstData[PixelPos] = FinalColor;
+			}
+			else if constexpr (TIsSame<ColorType, uint8>::Value || TIsSame<ColorType, uint16>::Value)
+			{
+				float LinearStepColor = 0.F;
+				for (int32 PixelX = PosX; PixelX <= EndPosX; PixelX++)
+				{
+					for (int32 PixelY = PosY; PixelY <= EndPosY; PixelY++)
+					{
+						const int32 StartPixel = PixelX + PixelY * SrcWidth;
+
+						if constexpr (TIsSame<ColorType, uint8>::Value)
+						{
+							LinearStepColor += sRGBToLinearTable[SrcData[StartPixel]];
+						}
+						else
+						{
+							LinearStepColor += float(SrcData[StartPixel]) / MAX_uint16;
+						}
+						PixelCount++;
+					}
+				}
+				LinearStepColor /= static_cast<float>(PixelCount);
+
+				if constexpr (TIsSame<ColorType, uint8>::Value)
+				{
+					const uint8 FinalColor = ToGammaSpaceFromLinear(LinearStepColor, true);
+					DstData[PixelPos] = FinalColor;
+				}
+				else
+				{
+					const uint16 FinalColor =
+						FMath::RoundToInt(FMath::Clamp(LinearStepColor * MAX_uint16, 0.F, float(MAX_uint16)));
+
+					DstData[PixelPos] = FinalColor;
 				}
 			}
-			LinearStepColor /= static_cast<float>(PixelCount);
-
-			// Convert back from linear space to gamma space.
-			const FColor FinalColor = LinearStepColor.ToFColor(true);
-
-			DstData[PixelPos] = FinalColor;
+			else
+			{
+				unimplemented();
+			}
 
 			SrcX = EndX;
 			PixelPos++;
@@ -190,11 +262,11 @@ using FChannelOptions = TArray<FChannelOptionsItem>;
 
 void PackTexture(const TCHAR* PackagePath,
 				 const TCHAR* TextureName,
-				 int32 InSizeX,
-				 int32 InSizeY,
-				 FChannelOption Red,
-				 FChannelOption Green,
-				 FChannelOption Blue,
+				 const int32 InSizeX,
+				 const int32 InSizeY,
+				 const FChannelOption Red,
+				 const FChannelOption Green,
+				 const FChannelOption Blue,
 				 TOptional<FChannelOption> Alpha)
 {
 	const FString PackageName = FString(PackagePath) + TextureName;
@@ -214,15 +286,19 @@ void PackTexture(const TCHAR* PackagePath,
 	struct FChannelOptionBytes
 	{
 		TArray64<uint8> Bytes;
-		int32 BytesPerPixel;
-		int32 ChannelOffset;
-		bool bInvert;
-		bool bSRGB;
+		int32 BytesPerPixel = 1;
+		int32 ChannelOffset = 0;
+		bool bInvert = false;
+		bool bSRGB = false;
+		bool b16BitChannel = false;
 	};
 	auto ChannelOptionBytes = [Size, InSizeX, InSizeY](FChannelOption ChannelOption) -> FChannelOptionBytes {
 		TArray64<uint8> Bytes;
 		int32 BytesPerPixel = 1;
 		bool bSRGB = false;
+		bool bSingleChannel = true;
+		bool b16BitChannel = false;
+
 		if (ChannelOption.Texture != nullptr)
 		{
 			FTextureSource& Texture = ChannelOption.Texture->Source;
@@ -230,21 +306,93 @@ void PackTexture(const TCHAR* PackagePath,
 			Texture.GetMipData(Bytes, 0);
 			BytesPerPixel = Texture.GetBytesPerPixel();
 
+			const ETextureSourceFormat TextureSourceFormat = Texture.GetFormat();
+
+			switch (TextureSourceFormat)
+			{
+				case TSF_BGRA8:
+					bSingleChannel = false;
+					b16BitChannel = false;
+					break;
+				case TSF_BGRE8:
+					bSingleChannel = false;
+					b16BitChannel = false;
+					break;
+				case TSF_RGBA16:
+					bSingleChannel = false;
+					b16BitChannel = true;
+					break;
+				case TSF_RGBA16F:
+					bSingleChannel = false;
+					b16BitChannel = true;
+					break;
+				case TSF_RGBA8:
+					bSingleChannel = false;
+					b16BitChannel = false;
+					break;
+				case TSF_RGBE8:
+					bSingleChannel = false;
+					b16BitChannel = false;
+					break;
+				case TSF_G8:
+					bSingleChannel = true;
+					b16BitChannel = false;
+					break;
+				case TSF_G16:
+					bSingleChannel = true;
+					b16BitChannel = true;
+					break;
+				default:
+					break;
+			}
+
 			if (Texture.GetSizeX() != InSizeX || Texture.GetSizeY() != InSizeY)
 			{
-				TArray64<uint8> Resized;
-				Resized.AddUninitialized(Size * BytesPerPixel);
-				ImageResize(Texture.GetSizeX(),
-							Texture.GetSizeY(),
-							TArrayView<FColor>(reinterpret_cast<FColor*>(Bytes.GetData()), Bytes.Num() / 4),
-							InSizeX,
-							InSizeY,
-							TArrayView<FColor>(reinterpret_cast<FColor*>(Resized.GetData()), Resized.Num() / 4));
-				Bytes = MoveTemp(Resized);
+				if (TextureSourceFormat == TSF_BGRA8)
+				{
+					TArray64<uint8> ResizedBytes;
+					ResizedBytes.AddUninitialized(Size * BytesPerPixel);
+					ImageResize<FColor>(Texture.GetSizeX(),
+										Texture.GetSizeY(),
+										TArrayView<const FColor>(reinterpret_cast<FColor*>(Bytes.GetData()),
+																 Bytes.Num() / sizeof(FColor)),
+										InSizeX,
+										InSizeY,
+										TArrayView<FColor>(reinterpret_cast<FColor*>(ResizedBytes.GetData()),
+														   ResizedBytes.Num() / sizeof(FColor)));
+					Bytes = MoveTemp(ResizedBytes);
+				}
+				else if (TextureSourceFormat == TSF_G8)
+				{
+					TArray64<uint8> ResizedBytes;
+					ResizedBytes.AddUninitialized(Size * BytesPerPixel);
+					ImageResize<uint8>(Texture.GetSizeX(), Texture.GetSizeY(), Bytes, InSizeX, InSizeY, ResizedBytes);
+					Bytes = MoveTemp(ResizedBytes);
+				}
+				else if (TextureSourceFormat == TSF_G16)
+				{
+					TArray64<uint8> ResizedBytes;
+					ResizedBytes.AddUninitialized(Size * BytesPerPixel);
+					ImageResize<uint16>(Texture.GetSizeX(),
+										Texture.GetSizeY(),
+										TArrayView<const uint16>(reinterpret_cast<uint16*>(Bytes.GetData()),
+																 Bytes.Num() / sizeof(uint16)),
+										InSizeX,
+										InSizeY,
+										TArrayView<uint16>(reinterpret_cast<uint16*>(ResizedBytes.GetData()),
+														   ResizedBytes.Num() / sizeof(uint16)));
+					Bytes = MoveTemp(ResizedBytes);
+				}
+				else
+				{
+					ensureMsgf(false, TEXT("Unsupported resize format"));
+				}
 			}
 		}
 		else
 		{
+			bSingleChannel = true;
+
 			if (ChannelOption.Channel == EChannel::Black)
 			{
 				Bytes.AddZeroed(Size);
@@ -256,9 +404,9 @@ void PackTexture(const TCHAR* PackagePath,
 			}
 		}
 
-		const int32 ChannelOffset = ChannelOption.Channel < EChannel::White ? int32(ChannelOption.Channel) : 0;
+		const int32 ChannelOffset = bSingleChannel ? 0 : int32(ChannelOption.Channel);
 
-		return {MoveTemp(Bytes), BytesPerPixel, ChannelOffset, ChannelOption.bInvert, bSRGB};
+		return {MoveTemp(Bytes), BytesPerPixel, ChannelOffset, ChannelOption.bInvert, bSRGB, b16BitChannel};
 	};
 
 	const FChannelOptionBytes RedBytes = ChannelOptionBytes(Red);
@@ -270,6 +418,14 @@ void PackTexture(const TCHAR* PackagePath,
 	uint8* Bytes = Texture->Source.LockMip(0);
 
 	auto GetByte = [](const int32 PixelIdx, const FChannelOptionBytes& Channel) -> uint8 {
+		if (Channel.b16BitChannel)
+		{
+			const uint8 Higher = Channel.Bytes[PixelIdx * Channel.BytesPerPixel + Channel.ChannelOffset];
+			const uint8 Lower = Channel.Bytes[PixelIdx * Channel.BytesPerPixel + Channel.ChannelOffset + 1];
+			const uint16 Value = (Higher << 16) | Lower;
+			return FMath::FloorToInt(float(Value) / float(MAX_uint16) * MAX_uint8);
+		}
+
 		const uint8 B = Channel.Bytes[PixelIdx * Channel.BytesPerPixel + Channel.ChannelOffset];
 		if (Channel.bSRGB)
 		{
@@ -588,7 +744,6 @@ private:
 	TArray<UTexture2D*> Textures;
 };
 
-
 class FTexturePackerModule final : public IModuleInterface
 {
 	virtual void StartupModule() override
@@ -635,10 +790,10 @@ class FTexturePackerModule final : public IModuleInterface
 
 	static void ShowPackerWindow(const TArray<FAssetData> SelectedAssets)
 	{
-    	TSharedRef<SWindow> PackerWindow =
-    		SNew(SWindow).Title(LOCTEXT("PackerWindow", "Texture Packer")).SizingRule(ESizingRule::Autosized);
-    	
-    	TArray<UTexture2D*> Textures;
+		TSharedRef<SWindow> PackerWindow =
+			SNew(SWindow).Title(LOCTEXT("PackerWindow", "Texture Packer")).SizingRule(ESizingRule::Autosized);
+
+		TArray<UTexture2D*> Textures;
 		Algo::TransformIf(
 			SelectedAssets,
 			Textures,
@@ -646,9 +801,9 @@ class FTexturePackerModule final : public IModuleInterface
 			[](const FAssetData& AssetData) { return Cast<UTexture2D>(AssetData.GetAsset()); });
 
 		PackerWindow->SetContent(SNew(STexturePacker, PackerWindow, MoveTemp(Textures)));
-    
-    	FSlateApplication::Get().AddWindow(PackerWindow);
-    };
+
+		FSlateApplication::Get().AddWindow(PackerWindow);
+	};
 
 	FContentBrowserMenuExtender_SelectedAssets MenuExtenderHandle;
 };
