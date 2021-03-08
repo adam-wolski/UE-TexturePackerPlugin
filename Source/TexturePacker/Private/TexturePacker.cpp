@@ -230,7 +230,7 @@ void PackTexture(const TCHAR* PackagePath,
 			Texture.GetMipData(Bytes, 0);
 			BytesPerPixel = Texture.GetBytesPerPixel();
 
-			if (Texture.GetSizeX() != InSizeY || Texture.GetSizeY() != InSizeY)
+			if (Texture.GetSizeX() != InSizeX || Texture.GetSizeY() != InSizeY)
 			{
 				TArray64<uint8> Resized;
 				Resized.AddUninitialized(Size * BytesPerPixel);
