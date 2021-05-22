@@ -691,7 +691,13 @@ public:
 				.OnClicked_Lambda([this, RedChannel, GreenChannel, BlueChannel, AlphaChannel, Window, UseAlphaCheckbox](){
 					const FString Path = 
 						FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser")
-							.Get().CreateModalSaveAssetDialog({});	
+							.Get().CreateModalSaveAssetDialog({});
+
+					if (Path.IsEmpty())
+					{
+						Window->RequestDestroyWindow();
+						return FReply::Handled();
+					}
 
 					FString PathPart, FilenamePart, ExtensionPart;
 					FPaths::Split(Path, PathPart, FilenamePart, ExtensionPart);
@@ -719,6 +725,7 @@ public:
 
 					if (!ensure(MinX != MAX_int32 && MinY != MAX_int32))
 					{
+						Window->RequestDestroyWindow();
 						return FReply::Handled();
 					}
 
