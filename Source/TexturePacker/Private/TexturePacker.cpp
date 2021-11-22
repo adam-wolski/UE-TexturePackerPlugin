@@ -276,11 +276,11 @@ void PackTexture(const TCHAR* PackagePath,
 
 	UTexture2D* Texture = NewObject<UTexture2D>(Package, TextureName, RF_Public | RF_Standalone);
 	Texture->Source.Init(InSizeX, InSizeY, 1, 1, TSF_BGRA8);
-	Texture->CompressionSettings = TextureCompressionSettings::TC_Masks;
-	Texture->CompressionNoAlpha = !Alpha.IsSet();
 	// Use SRGB only if RGB channels are said to keep SRGB
 	// This is useful when creating pack texture of Diffuse and some other texture
 	Texture->SRGB = Red.bKeepSrgb && Green.bKeepSrgb && Blue.bKeepSrgb;
+	Texture->CompressionSettings = Texture->SRGB ? (Alpha.IsSet() ? TC_BC7 : TC_Default) : TC_Masks;
+	Texture->CompressionNoAlpha = !Alpha.IsSet();
 
 	const int32 BytesPerPixel = Texture->Source.GetBytesPerPixel();
 
