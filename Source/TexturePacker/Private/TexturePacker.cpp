@@ -625,7 +625,7 @@ private:
 
 	TSharedRef<SWidget> OnGenerateWidget(const FChannelOptionsItem Item) const
 	{
-		return SNew(STextBlock).Text(OptionLabel(Item)).ColorAndOpacity(FSlateColor(FLinearColor::Green));
+		return SNew(STextBlock).Text(OptionLabel(Item));
 	};
 
 	FChannelOptionsItem Selected;
