@@ -1,6 +1,6 @@
 # Texture Packer
 
-Yet another texture plugin for unreal.
+Yet another texture packing plugin for unreal.
 - Packing channels from multiple textures into single one
 - Reordering channels in single texture
 
