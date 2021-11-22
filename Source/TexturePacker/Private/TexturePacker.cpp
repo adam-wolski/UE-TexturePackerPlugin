@@ -250,12 +250,13 @@ FText ChannelToText(EChannel Channel)
 
 struct FChannelOption
 {
-	FChannelOption(UTexture* InTexture, EChannel InChannel, bool bInInvert = false)
-		: Texture(InTexture), Channel(InChannel), bInvert(bInInvert){};
+	FChannelOption(UTexture* InTexture, EChannel InChannel, bool bInInvert = false, bool bInKeepSrgb = false)
+		: Texture(InTexture), Channel(InChannel), bInvert(bInInvert), bKeepSrgb(bInKeepSrgb){};
 
 	UTexture* Texture;
 	EChannel Channel;
 	bool bInvert;
+	bool bKeepSrgb;
 };
 using FChannelOptionsItem = TSharedPtr<FChannelOption>;
 using FChannelOptions = TArray<FChannelOptionsItem>;
@@ -277,7 +278,9 @@ void PackTexture(const TCHAR* PackagePath,
 	Texture->Source.Init(InSizeX, InSizeY, 1, 1, TSF_BGRA8);
 	Texture->CompressionSettings = TextureCompressionSettings::TC_Masks;
 	Texture->CompressionNoAlpha = !Alpha.IsSet();
-	Texture->SRGB = false;
+	// Use SRGB only if RGB channels are said to keep SRGB
+	// This is useful when creating pack texture of Diffuse and some other texture
+	Texture->SRGB = Red.bKeepSrgb && Green.bKeepSrgb && Blue.bKeepSrgb;
 
 	const int32 BytesPerPixel = Texture->Source.GetBytesPerPixel();
 
@@ -289,7 +292,7 @@ void PackTexture(const TCHAR* PackagePath,
 		int32 BytesPerPixel = 1;
 		int32 ChannelOffset = 0;
 		bool bInvert = false;
-		bool bSRGB = false;
+		bool bConvertSRGB = false;
 		bool b16BitChannel = false;
 	};
 	auto ChannelOptionBytes = [Size, InSizeX, InSizeY](FChannelOption ChannelOption) -> FChannelOptionBytes {
@@ -406,7 +409,12 @@ void PackTexture(const TCHAR* PackagePath,
 
 		const int32 ChannelOffset = bSingleChannel ? 0 : int32(ChannelOption.Channel);
 
-		return {MoveTemp(Bytes), BytesPerPixel, ChannelOffset, ChannelOption.bInvert, bSRGB, b16BitChannel};
+		return {MoveTemp(Bytes),
+				BytesPerPixel,
+				ChannelOffset,
+				ChannelOption.bInvert,
+				bSRGB && !ChannelOption.bKeepSrgb,
+				b16BitChannel};
 	};
 
 	const FChannelOptionBytes RedBytes = ChannelOptionBytes(Red);
@@ -427,7 +435,7 @@ void PackTexture(const TCHAR* PackagePath,
 		}
 
 		const uint8 B = Channel.Bytes[PixelIdx * Channel.BytesPerPixel + Channel.ChannelOffset];
-		if (Channel.bSRGB)
+		if (Channel.bConvertSRGB)
 		{
 			float BLin = sRGBToLinearTable[B];
 			BLin = Channel.bInvert ? 1.f - BLin : BLin;
@@ -509,6 +517,20 @@ public:
 						.Visibility(this, &SChannelComboBox::GetInvertCheckBoxVisibility)
 						.OnCheckStateChanged(this, &SChannelComboBox::OnInvertCheckStateChanged)
 					]
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(STextBlock).Text(LOCTEXT("KeepSrgb", "Keep Srgb"))
+						.Visibility(this, &SChannelComboBox::GetSrgbCheckBoxVisibility)
+					]
+					+SHorizontalBox::Slot()
+					.AutoWidth()
+					[
+						SNew(SCheckBox)
+						.IsChecked(this, &SChannelComboBox::GetCurrentSrgb)
+						.Visibility(this, &SChannelComboBox::GetSrgbCheckBoxVisibility)
+						.OnCheckStateChanged(this, &SChannelComboBox::OnSrgbCheckStateChanged)
+					]
 				]
 			];
 
@@ -534,6 +556,15 @@ private:
 		return EVisibility::Collapsed;
 	}
 
+	EVisibility GetSrgbCheckBoxVisibility() const
+	{
+		if (Selected.IsValid() && Selected->Texture != nullptr && Selected->Texture->SRGB)
+		{
+			return EVisibility::Visible;
+		}
+		return EVisibility::Collapsed;
+	}
+
 	void OnSelectionChanged(FChannelOptionsItem InSelection, ESelectInfo::Type /*SelectInfo*/)
 	{
 		Selected = InSelection;
@@ -543,10 +574,20 @@ private:
 	{
 		Selected->bInvert = CheckState == ECheckBoxState::Checked ? true : false;
 	}
+	
+	void OnSrgbCheckStateChanged(const ECheckBoxState CheckState) const
+	{
+		Selected->bKeepSrgb = CheckState == ECheckBoxState::Checked ? true : false;
+	}
 
 	ECheckBoxState GetCurrentInverted() const
 	{
 		return Selected->bInvert ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
+	}
+
+	ECheckBoxState GetCurrentSrgb() const
+	{
+		return Selected->bKeepSrgb ? ECheckBoxState::Checked : ECheckBoxState::Unchecked;
 	}
 
 	FText GetCurrentLabel() const
@@ -584,7 +625,7 @@ private:
 
 	TSharedRef<SWidget> OnGenerateWidget(const FChannelOptionsItem Item) const
 	{
-		return SNew(STextBlock).Text(OptionLabel(Item));
+		return SNew(STextBlock).Text(OptionLabel(Item)).ColorAndOpacity(FSlateColor(FLinearColor::Green));
 	};
 
 	FChannelOptionsItem Selected;
@@ -691,13 +732,7 @@ public:
 				.OnClicked_Lambda([this, RedChannel, GreenChannel, BlueChannel, AlphaChannel, Window, UseAlphaCheckbox](){
 					const FString Path = 
 						FModuleManager::LoadModuleChecked<FContentBrowserModule>("ContentBrowser")
-							.Get().CreateModalSaveAssetDialog({});
-
-					if (Path.IsEmpty())
-					{
-						Window->RequestDestroyWindow();
-						return FReply::Handled();
-					}
+							.Get().CreateModalSaveAssetDialog({});	
 
 					FString PathPart, FilenamePart, ExtensionPart;
 					FPaths::Split(Path, PathPart, FilenamePart, ExtensionPart);
@@ -725,7 +760,6 @@ public:
 
 					if (!ensure(MinX != MAX_int32 && MinY != MAX_int32))
 					{
-						Window->RequestDestroyWindow();
 						return FReply::Handled();
 					}
 
