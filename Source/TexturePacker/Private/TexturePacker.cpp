@@ -8,6 +8,10 @@
 #include "Framework/Application/SlateApplication.h"
 #include "Framework/MultiBox/MultiBoxBuilder.h"
 #include "IContentBrowserSingleton.h"
+#include "ISourceControlModule.h"
+#include "ISourceControlOperation.h"
+#include "ISourceControlProvider.h"
+#include "SourceControlOperations.h"
 #include "Modules/ModuleManager.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Input/SButton.h"
@@ -447,6 +451,13 @@ void PackTexture(const TCHAR* PackagePath,
 	const FString PackageFilename =
 		FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
 	UPackage::SavePackage(Package, Texture, RF_Public | RF_Standalone, *PackageFilename);
+
+	// Add new package to source control
+	if (const ISourceControlModule& SourceControlModule = ISourceControlModule::Get(); SourceControlModule.IsEnabled())
+	{
+		ISourceControlProvider& Provider = SourceControlModule.GetProvider();
+		Provider.Execute(ISourceControlOperation::Create<FMarkForAdd>(), Package);
+	}
 }
 
 class SChannelComboBox final : public SCompoundWidget
