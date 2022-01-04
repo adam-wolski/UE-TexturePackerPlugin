@@ -27,12 +27,12 @@ struct FChannelOption
 	bool bKeepSrgb;
 };
 
-TEXTUREPACKER_API void PackTexture(const TCHAR* PackagePath,
-								   const TCHAR* TextureName,
-								   const int32 InSizeX,
-								   const int32 InSizeY,
-								   const FChannelOption Red,
-								   const FChannelOption Green,
-								   const FChannelOption Blue,
-								   TOptional<FChannelOption> Alpha);
+TEXTUREPACKER_API UTexture* PackTexture(const TCHAR* PackagePath,
+										const TCHAR* TextureName,
+										const int32 InSizeX,
+										const int32 InSizeY,
+										const FChannelOption Red,
+										const FChannelOption Green,
+										const FChannelOption Blue,
+										TOptional<FChannelOption> Alpha);
 }  // namespace TexturePacker

@@ -247,14 +247,14 @@ FText ChannelToText(EChannel Channel)
 using FChannelOptionsItem = TSharedPtr<FChannelOption>;
 using FChannelOptions = TArray<FChannelOptionsItem>;
 
-void PackTexture(const TCHAR* PackagePath,
-				 const TCHAR* TextureName,
-				 const int32 InSizeX,
-				 const int32 InSizeY,
-				 const FChannelOption Red,
-				 const FChannelOption Green,
-				 const FChannelOption Blue,
-				 TOptional<FChannelOption> Alpha)
+UTexture* PackTexture(const TCHAR* PackagePath,
+					  const TCHAR* TextureName,
+					  const int32 InSizeX,
+					  const int32 InSizeY,
+					  const FChannelOption Red,
+					  const FChannelOption Green,
+					  const FChannelOption Blue,
+					  TOptional<FChannelOption> Alpha)
 {
 	const FString PackageName = FString(PackagePath) + TextureName;
 	UPackage* Package = CreatePackage(*PackageName);
@@ -458,6 +458,8 @@ void PackTexture(const TCHAR* PackagePath,
 		ISourceControlProvider& Provider = SourceControlModule.GetProvider();
 		Provider.Execute(ISourceControlOperation::Create<FMarkForAdd>(), Package);
 	}
+
+	return Texture;
 }
 
 class SChannelComboBox final : public SCompoundWidget
