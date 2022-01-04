@@ -1,4 +1,4 @@
-#include "CoreMinimal.h"
+#include "TexturePacker.h"
 
 #include "Algo/Transform.h"
 #include "AssetRegistryModule.h"
@@ -21,6 +21,8 @@
 
 #define LOCTEXT_NAMESPACE "TexturePacker"
 
+namespace TexturePacker
+{
 // clang-format off
 // Copied form Math\Color.cpp. Wasn't in exported symbols
 float sRGBToLinearTable[256] =
@@ -218,16 +220,6 @@ void ImageResize(const int32 SrcWidth,
 	}
 }
 
-enum class EChannel
-{
-	B = 0,
-	G = 1,
-	R = 2,
-	A = 3,
-	White,
-	Black
-};
-
 FText ChannelToText(EChannel Channel)
 {
 	switch (Channel)
@@ -248,16 +240,6 @@ FText ChannelToText(EChannel Channel)
 	return LOCTEXT("Error", "Error");
 };
 
-struct FChannelOption
-{
-	FChannelOption(UTexture* InTexture, EChannel InChannel, bool bInInvert = false, bool bInKeepSrgb = false)
-		: Texture(InTexture), Channel(InChannel), bInvert(bInInvert), bKeepSrgb(bInKeepSrgb){};
-
-	UTexture* Texture;
-	EChannel Channel;
-	bool bInvert;
-	bool bKeepSrgb;
-};
 using FChannelOptionsItem = TSharedPtr<FChannelOption>;
 using FChannelOptions = TArray<FChannelOptionsItem>;
 
@@ -295,7 +277,8 @@ void PackTexture(const TCHAR* PackagePath,
 		bool bConvertSRGB = false;
 		bool b16BitChannel = false;
 	};
-	auto ChannelOptionBytes = [Size, InSizeX, InSizeY](FChannelOption ChannelOption) -> FChannelOptionBytes {
+	auto ChannelOptionBytes = [Size, InSizeX, InSizeY](FChannelOption ChannelOption) -> FChannelOptionBytes
+	{
 		TArray64<uint8> Bytes;
 		int32 BytesPerPixel = 1;
 		bool bSRGB = false;
@@ -425,7 +408,8 @@ void PackTexture(const TCHAR* PackagePath,
 
 	uint8* Bytes = Texture->Source.LockMip(0);
 
-	auto GetByte = [](const int32 PixelIdx, const FChannelOptionBytes& Channel) -> uint8 {
+	auto GetByte = [](const int32 PixelIdx, const FChannelOptionBytes& Channel) -> uint8
+	{
 		if (Channel.b16BitChannel)
 		{
 			const uint8 Higher = Channel.Bytes[PixelIdx * Channel.BytesPerPixel + Channel.ChannelOffset];
@@ -574,7 +558,7 @@ private:
 	{
 		Selected->bInvert = CheckState == ECheckBoxState::Checked ? true : false;
 	}
-	
+
 	void OnSrgbCheckStateChanged(const ECheckBoxState CheckState) const
 	{
 		Selected->bKeepSrgb = CheckState == ECheckBoxState::Checked ? true : false;
@@ -602,7 +586,8 @@ private:
 			return LOCTEXT("SelectOverride", "Select channel override");
 		}
 
-		FText Label = [&]() {
+		FText Label = [&]()
+		{
 			if (Item->Texture == nullptr)
 			{
 				return ChannelToText(Item->Channel);
@@ -681,9 +666,9 @@ public:
 			SNew(SChannelComboBox)
 				.OptionsSource(&ChannelOptions)
 				.InitialSelection(ChannelOptions[1])
-				.Visibility_Lambda([UseAlphaCheckbox]() {
-					return UseAlphaCheckbox->IsChecked() ? EVisibility::Visible : EVisibility::Collapsed;
-				});
+				.Visibility_Lambda(
+					[UseAlphaCheckbox]()
+					{ return UseAlphaCheckbox->IsChecked() ? EVisibility::Visible : EVisibility::Collapsed; });
 
 		// clang-format off
 		ChildSlot
@@ -811,7 +796,8 @@ class FTexturePackerModule final : public IModuleInterface
 			return Extender;
 		}
 
-		auto MenuExtension = [SelectedAssets](FMenuBuilder& MenuBuilder) {
+		auto MenuExtension = [SelectedAssets](FMenuBuilder& MenuBuilder)
+		{
 			const FUIAction Action{
 				FExecuteAction::CreateStatic(&FTexturePackerModule::ShowPackerWindow, SelectedAssets)};
 
@@ -849,6 +835,7 @@ class FTexturePackerModule final : public IModuleInterface
 	FContentBrowserMenuExtender_SelectedAssets MenuExtenderHandle;
 };
 
-IMPLEMENT_MODULE(FTexturePackerModule, TexturePacker);
+}  // namespace TexturePacker
+IMPLEMENT_MODULE(TexturePacker::FTexturePackerModule, TexturePacker);
 
 #undef LOCTEXT_NAMESPACE

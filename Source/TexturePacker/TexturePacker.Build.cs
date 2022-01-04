@@ -6,7 +6,6 @@ namespace UnrealBuildTool.Rules
 		{
 			DefaultBuildSettings = BuildSettingsVersion.V2;
 			CppStandard = CppStandardVersion.Cpp17;
-			PCHUsage = PCHUsageMode.NoSharedPCHs;
 			PrivatePCHHeaderFile = "Private/TexturePackerPCH.h";
 
 			PrivateDependencyModuleNames.AddRange(
@@ -19,6 +18,14 @@ namespace UnrealBuildTool.Rules
 					"Slate",
 					"SlateCore",
 					"UnrealEd",
+				}
+			);
+			
+			PublicDependencyModuleNames.AddRange(
+				new string[]
+				{
+					"Core",
+					"CoreUObject",
 				}
 			);
 		}
