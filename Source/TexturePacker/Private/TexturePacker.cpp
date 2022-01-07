@@ -761,6 +761,11 @@ public:
 						return FReply::Handled();
 					}
 
+					if (FilenamePart.IsEmpty())
+					{
+						return FReply::Handled();
+					}
+
 					PackTexture(*PathPart,
 								*FilenamePart,
 								MinX,
