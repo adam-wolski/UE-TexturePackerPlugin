@@ -256,7 +256,7 @@ UTexture* PackTexture(const TCHAR* PackagePath,
 					  const FChannelOption Blue,
 					  TOptional<FChannelOption> Alpha)
 {
-	const FString PackageName = FString(PackagePath) + TextureName;
+	const FString PackageName = FString(PackagePath) / TextureName;
 	UPackage* Package = CreatePackage(*PackageName);
 	Package->FullyLoad();
 
