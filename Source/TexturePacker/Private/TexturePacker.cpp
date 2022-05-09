@@ -13,6 +13,7 @@
 #include "ISourceControlProvider.h"
 #include "SourceControlOperations.h"
 #include "Modules/ModuleManager.h"
+#include "UObject/SavePackage.h"
 #include "Widgets/DeclarativeSyntaxSupport.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
@@ -450,8 +451,12 @@ UTexture* PackTexture(const TCHAR* PackagePath,
 	FAssetRegistryModule::AssetCreated(Texture);
 	const FString PackageFilename =
 		FPackageName::LongPackageNameToFilename(PackageName, FPackageName::GetAssetPackageExtension());
-	UPackage::SavePackage(Package, Texture, RF_Public | RF_Standalone, *PackageFilename);
 
+	FSavePackageArgs SaveArgs = { nullptr, RF_Public | RF_Standalone, SAVE_None, false,
+			true, true, FDateTime::MinValue(), GError };
+
+	UPackage::SavePackage(Package, Texture, *PackageFilename, SaveArgs);
+	
 	// Add new package to source control
 	if (const ISourceControlModule& SourceControlModule = ISourceControlModule::Get(); SourceControlModule.IsEnabled())
 	{
